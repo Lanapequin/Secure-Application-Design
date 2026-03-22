@@ -1,112 +1,97 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure App - ECI</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ECI — Secure App</title>
+    <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="app-header">
-            <div class="header-content">
-                <h1>🔐 Secure App</h1>
-                <p class="subtitle">ECI - Arquitectura Segura</p>
+<div class="app">
+    <header>
+        <div class="header-left">
+            <span class="lock-icon">🔐</span>
+            <div>
+                <h1>ECI Secure App</h1>
+                <p>Arquitectura Segura — Apache + Spring</p>
             </div>
-            <div id="userInfo" class="user-info hidden">
-                <span id="usernameDisplay"></span>
-                <button id="logoutBtn" class="btn btn-secondary">Logout</button>
-            </div>
-        </header>
-
-        <!-- Auth Section -->
-        <main id="authSection" class="card">
-            <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('login')">Login</button>
-                <button class="tab-btn" onclick="switchTab('register')">Register</button>
-            </div>
-
-            <!-- Login Form -->
-            <div id="loginTab" class="tab-content">
-                <h2>Sign In</h2>
-                <div class="form-group">
-                    <label for="loginUser">Username</label>
-                    <input type="text" id="loginUser" placeholder="Enter username" autocomplete="username">
-                </div>
-                <div class="form-group">
-                    <label for="loginPass">Password</label>
-                    <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password">
-                </div>
-                <button id="loginBtn" class="btn btn-primary" onclick="login()">Login</button>
-                <div id="loginMsg" class="message"></div>
-                <div class="default-creds">
-                    <small>Default: admin / Admin123! &nbsp;|&nbsp; user1 / User123!</small>
-                </div>
-            </div>
-
-            <!-- Register Form -->
-            <div id="registerTab" class="tab-content hidden">
-                <h2>Create Account</h2>
-                <div class="form-group">
-                    <label for="regUser">Username</label>
-                    <input type="text" id="regUser" placeholder="Choose a username">
-                </div>
-                <div class="form-group">
-                    <label for="regPass">Password</label>
-                    <input type="password" id="regPass" placeholder="Choose a password (min 6 chars)">
-                </div>
-                <button class="btn btn-primary" onclick="register()">Register</button>
-                <div id="registerMsg" class="message"></div>
-            </div>
-        </main>
-
-        <!-- Dashboard Section (shown after login) -->
-        <section id="dashboardSection" class="hidden">
-            <div class="dashboard-grid">
-                <div class="card action-card">
-                    <h3>👋 Hello Endpoint</h3>
-                    <p>Call the secured /api/hello endpoint on the backend service.</p>
-                    <button class="btn btn-primary" onclick="callHello()">Call /api/hello</button>
-                    <div id="helloResult" class="result-box"></div>
-                </div>
-
-                <div class="card action-card">
-                    <h3>📊 Data Endpoint</h3>
-                    <p>Fetch protected data from the backend service.</p>
-                    <button class="btn btn-primary" onclick="callData()">Call /api/data</button>
-                    <div id="dataResult" class="result-box"></div>
-                </div>
-
-                <div class="card action-card">
-                    <h3>🔒 Security Info</h3>
-                    <p>View security configuration of the backend server.</p>
-                    <button class="btn btn-primary" onclick="callSecureInfo()">Call /api/secure-info</button>
-                    <div id="secureResult" class="result-box"></div>
-                </div>
-
-                <div class="card info-card">
-                    <h3>🏗️ Architecture</h3>
-                    <ul>
-                        <li>✅ Apache serves this HTML/JS client over HTTPS</li>
-                        <li>✅ Login-Service authenticates users (Spring + BCrypt)</li>
-                        <li>✅ Backend-Service provides REST APIs (Spring + TLS)</li>
-                        <li>✅ JWT tokens for stateless auth</li>
-                        <li>✅ mTLS between servers</li>
-                        <li>✅ 12-factor: config in environment</li>
-                    </ul>
-                </div>
-            </div>
-        </section>
-
-        <!-- Status Bar -->
-        <div id="statusBar" class="status-bar">
-            <span id="statusMsg">🔒 Connection secured via HTTPS/TLS</span>
-            <span id="tokenStatus"></span>
         </div>
-    </div>
+        <div id="headerUser" class="header-user hidden">
+            <span id="headerName"></span>
+            <button onclick="logout()">Logout</button>
+        </div>
+    </header>
 
-    <script src="js/config.js"></script>
-    <script src="js/app.js"></script>
+    <main id="authCard" class="card">
+        <div class="tabs">
+            <button id="tabLogin" class="tab active" onclick="showTab('login')">Login</button>
+            <button id="tabRegister" class="tab" onclick="showTab('register')">Register</button>
+        </div>
+        <div id="panelLogin">
+            <h2>Sign in</h2>
+            <label>Username
+                <input id="loginUser" type="text" placeholder="admin" autocomplete="username" />
+            </label>
+            <label>Password
+                <input id="loginPass" type="password" placeholder="Admin123!" autocomplete="current-password" />
+            </label>
+            <button class="btn-primary" onclick="login()">Login</button>
+            <div id="loginMsg" class="msg"></div>
+            <div class="hint">Default: <code>admin / Admin123!</code> &nbsp;|&nbsp; <code>student / Student123!</code></div>
+        </div>
+        <div id="panelRegister" class="hidden">
+            <h2>Create account</h2>
+            <label>Username (min 3 chars)
+                <input id="regUser" type="text" placeholder="new_user" />
+            </label>
+            <label>Password (min 6 chars)
+                <input id="regPass" type="password" placeholder="MyPass1!" />
+            </label>
+            <button class="btn-primary" onclick="register()">Register</button>
+            <div id="registerMsg" class="msg"></div>
+        </div>
+    </main>
+
+    <section id="dashboard" class="hidden">
+        <div class="grid">
+            <div class="card action-card">
+                <h3>👋 Hello</h3>
+                <p>Calls <code>GET /api/hello</code> on the Spring server.</p>
+                <button class="btn-primary" onclick="call('/api/hello','helloBox')">Call /api/hello</button>
+                <pre id="helloBox" class="result"></pre>
+            </div>
+            <div class="card action-card">
+                <h3>📊 Data</h3>
+                <p>Calls <code>GET /api/data</code> — protected records.</p>
+                <button class="btn-primary" onclick="call('/api/data','dataBox')">Call /api/data</button>
+                <pre id="dataBox" class="result"></pre>
+            </div>
+            <div class="card action-card">
+                <h3>🪪 Who am I?</h3>
+                <p>Calls <code>GET /api/whoami</code> — shows security info.</p>
+                <button class="btn-primary" onclick="call('/api/whoami','whoamiBox')">Call /api/whoami</button>
+                <pre id="whoamiBox" class="result"></pre>
+            </div>
+            <div class="card info-card">
+                <h3>🏗️ Architecture</h3>
+                <ul>
+                    <li>✅ <strong>Server 1 — Apache</strong><br>Serves this page over HTTPS</li>
+                    <li>✅ <strong>Server 2 — Spring</strong><br>REST APIs over HTTPS + TLS</li>
+                    <li>✅ Passwords: <strong>BCrypt</strong></li>
+                    <li>✅ Auth: <strong>JWT / HMAC-SHA256</strong></li>
+                    <li>✅ Config in <strong>env vars</strong> (12-factor)</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <footer id="statusBar">
+        <span>🔒 HTTPS · TLS 1.2+</span>
+        <span id="tokenStatus"></span>
+    </footer>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

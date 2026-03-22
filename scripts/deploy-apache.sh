@@ -26,8 +26,8 @@ set -e
 
 DOMAIN="${1:-}"
 if [ -z "$DOMAIN" ]; then
-  echo "❌ Usage: sudo ./setup-apache.sh <your-domain.com>"
-  echo "   Example: sudo ./setup-apache.sh app.example.com"
+  echo "Usage: sudo ./setup-apache.sh <your-domain.com>"
+  echo "Example: sudo ./setup-apache.sh app.example.com"
   exit 1
 fi
 
@@ -40,7 +40,7 @@ echo "================================================================="
 echo ""
 echo "=== [1/7] Updating system packages ==="
 dnf upgrade -y
-echo "✅ System updated."
+echo "System updated."
 
 # ─── Step 2: Install Apache ───────────────────────────────────────────────────
 echo ""
@@ -48,10 +48,10 @@ echo "=== [2/7] Installing Apache (httpd) ==="
 dnf install -y httpd mod_ssl wget
 systemctl start httpd
 systemctl enable httpd
-echo "✅ Apache installed and started."
+echo "Apache installed and started."
 
 # Verify
-systemctl is-active httpd && echo "   Apache is ACTIVE ✅" || echo "   ⚠️  Apache is NOT active!"
+systemctl is-active httpd && echo "   Apache is ACTIVE" || echo "Apache is NOT active!"
 
 # ─── Step 3: Configure file permissions ───────────────────────────────────────
 echo ""
@@ -61,14 +61,14 @@ chown -R ec2-user:apache /var/www
 chmod 2775 /var/www
 find /var/www -type d -exec chmod 2775 {} \;
 find /var/www -type f -exec chmod 0664 {} \;
-echo "✅ Permissions set."
+echo "Permissions set."
 
 # ─── Step 4: Install Certbot (Let's Encrypt) ──────────────────────────────────
 echo ""
 echo "=== [4/7] Installing Certbot ==="
 dnf install -y python3 augeas-libs
 pip3 install --quiet certbot certbot-apache
-echo "✅ Certbot installed."
+echo "Certbot installed."
 
 # ─── Step 5: Obtain Let's Encrypt Certificate ─────────────────────────────────
 echo ""
@@ -86,9 +86,9 @@ certbot certonly \
   --pre-hook  "systemctl stop httpd" \
   --post-hook "systemctl start httpd"
 
-echo "✅ Certificate obtained."
-echo "   Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-echo "   Private key: /etc/letsencrypt/live/$DOMAIN/privkey.pem"
+echo "Certificate obtained."
+echo "Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+echo "Private key: /etc/letsencrypt/live/$DOMAIN/privkey.pem"
 
 # ─── Step 6: Deploy HTML/JS Client Files ──────────────────────────────────────
 echo ""
@@ -99,9 +99,9 @@ if [ -d "../apache-client" ]; then
   cp -r ../apache-client/html/* /var/www/html/
   cp -r ../apache-client/css  /var/www/html/
   cp -r ../apache-client/js   /var/www/html/
-  echo "✅ Client files copied from ../apache-client"
+  echo "Client files copied from ../apache-client"
 else
-  echo "⚠️  ../apache-client not found — copy files manually to /var/www/html"
+  echo "../apache-client not found — copy files manually to /var/www/html"
 fi
 
 # ─── Step 7: Configure Apache Virtual Host with HTTPS ─────────────────────────
@@ -158,7 +158,7 @@ cat > /etc/httpd/conf.d/secure-app.conf << EOF
 </VirtualHost>
 EOF
 
-echo "✅ Virtual host configuration written."
+echo "Virtual host configuration written."
 
 # Enable mod_headers and mod_rewrite
 echo "LoadModule headers_module modules/mod_headers.so"  >> /etc/httpd/conf/httpd.conf 2>/dev/null || true
@@ -167,23 +167,23 @@ echo "LoadModule rewrite_module modules/mod_rewrite.so"  >> /etc/httpd/conf/http
 # Test config
 echo ""
 echo "=== Testing Apache configuration ==="
-httpd -t && echo "✅ Apache configuration is VALID" || (echo "❌ Apache configuration has errors!" && exit 1)
+httpd -t && echo "Apache configuration is VALID" || (echo " Apache configuration has errors!" && exit 1)
 
 # Reload Apache
 systemctl reload httpd
-echo "✅ Apache reloaded."
+echo "Apache reloaded."
 
 # ─── Auto-renewal cron job ────────────────────────────────────────────────────
 echo ""
 echo "=== Setting up auto-renewal cron ==="
 # Let's Encrypt certs expire in 90 days; renew at day 60
 (crontab -l 2>/dev/null; echo "0 0,12 * * * certbot renew --quiet --pre-hook 'systemctl stop httpd' --post-hook 'systemctl start httpd'") | crontab -
-echo "✅ Auto-renewal cron job added (runs twice daily)."
+echo "Auto-renewal cron job added (runs twice daily)."
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "================================================================="
-echo "  ✅ Apache + Let's Encrypt setup COMPLETE"
+echo "     Apache + Let's Encrypt setup COMPLETE"
 echo "================================================================="
 echo ""
 echo "  Your client is now accessible at: https://$DOMAIN"

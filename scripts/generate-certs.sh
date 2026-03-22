@@ -42,7 +42,7 @@ keytool -genkeypair \
   -noprompt
 
 echo ""
-echo "  ✅ Keystore creado: $KEYSTORE_FILE"
+echo "   Keystore creado: $KEYSTORE_FILE"
 echo ""
 
 # Verifica lo generado
@@ -55,5 +55,5 @@ keytool -list -v \
 
 echo ""
 echo "=================================================="
-echo "  ✅ Listo — ahora ejecuta: mvn clean package"
+echo "   Listo — ahora ejecuta: mvn clean package"
 echo "=================================================="

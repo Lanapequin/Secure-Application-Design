@@ -1,367 +1,410 @@
-# 🔐 Secure App — ECI Arquitectura Segura
+# Secure App — ECI Arquitectura Segura
 
-A fully secured multi-server web application built with **pure Spring 5 + Maven** (no Spring Boot), deployed on AWS. Implements TLS encryption, JWT authentication, BCrypt password hashing, mutual TLS between servers, and follows 12-factor app principles.
+**Estudiante:** Laura Natalia Perilla Quintero
 
----
+Este laboratorio implementa una aplicación web segura desplegada en AWS con dos servidores separados. El Servidor 1 es Apache, que entrega al navegador una interfaz web construida con HTML, CSS y JavaScript asíncrono sobre una conexión HTTPS cifrada. El Servidor 2 es Spring Framework, que expone una API REST protegida con TLS, autenticación por tokens JWT y almacenamiento de contraseñas con BCrypt.
 
-## 🏗️ Architecture Overview
+El usuario accede al cliente web desde Apache, inicia sesión con sus credenciales, y el JavaScript del navegador llama de forma asíncrona a los endpoints del servidor Spring usando el token JWT como mecanismo de autorización. Cualquier petición sin token válido es rechazada con un error 401.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         User's Browser                              │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ HTTPS (Let's Encrypt cert)
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│              EC2 Instance 1 — Apache Server (port 443)              │
-│   Serves: HTML + CSS + JavaScript (async client)                    │
-│   TLS: Let's Encrypt certificate                                     │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ async fetch() over HTTPS
-          ┌────────────────────┴─────────────────────┐
-          │                                          │
-          ▼ HTTPS (self-signed / LE cert)            ▼ HTTPS (self-signed / LE cert)
-┌─────────────────────────┐              ┌──────────────────────────────┐
-│  EC2 Instance 2          │              │  EC2 Instance 3              │
-│  Login Service           │              │  Backend Service             │
-│  Spring 5 + Jetty        │              │  Spring 5 + Jetty            │
-│  Port: 5000              │   JWT token  │  Port: 6000                  │
-│                          │─────────────▶│  (validated by TokenFilter)  │
-│  /api/auth/login         │              │  /api/hello                  │
-│  /api/auth/register      │              │  /api/data                   │
-│  /health                 │              │  /api/secure-info            │
-│                          │              │  /health                     │
-│  KeyStore: PKCS12        │              │  KeyStore: PKCS12            │
-│  TrustStore: JKS         │◀────mTLS────▶│  TrustStore: JKS             │
-└─────────────────────────┘              └──────────────────────────────┘
-```
+Todo el proyecto sigue los principios de la metodología 12-factor app, la configuración sensible como contraseñas, rutas de keystores y secretos de firma nunca está en el código, sino en variables de entorno. Los certificados TLS se generaron con `keytool` (formato PKCS12) para Spring y con `OpenSSL` para Apache.
 
 ---
 
-## 🔒 Security Features
+## Arquitectura
 
-| Feature | Implementation |
+```
+                        Usuario (Browser)
+                              │
+                              │ HTTPS (TLS, cert auto-firmado)
+                              ▼
+               ┌──────────────────────────────┐
+               │   SERVIDOR 1 — Apache         │
+               │   EC2 Amazon Linux 2023       │
+               │   IP: 18.207.125.2            │
+               │   Puerto: 443 (HTTPS)         │
+               │                              │
+               │   Sirve:                     │
+               │   - index.html               │
+               │   - app.js (async fetch)     │
+               │   - config.js                │
+               │   - styles.css               │
+               └──────────────┬───────────────┘
+                              │
+                              │ HTTPS + JWT (async fetch API)
+                              ▼
+               ┌──────────────────────────────┐
+               │   SERVIDOR 2 — Spring        │
+               │   EC2 Amazon Linux 2023      │
+               │   IP: 54.197.195.207         │
+               │   Puerto: 8443 (HTTPS)       │
+               │                              │
+               │   Endpoints:                 │
+               │   POST /api/auth/login       │
+               │   POST /api/auth/register    │
+               │   GET  /api/hello            │
+               │   GET  /api/data             │
+               │   GET  /api/whoami           │
+               │   GET  /health               │
+               │                              │
+               │   Seguridad:                 │
+               │   - TLS con PKCS12 keystore  │
+               │   - BCrypt passwords         │
+               │   - JWT / HMAC-SHA256        │
+               │   - Spring Security 5.7      │
+               └──────────────────────────────┘
+```
+
+---
+
+## Características de Seguridad
+
+| Característica | Implementación |
 |---|---|
-| Transport Encryption | HTTPS/TLS on all 3 servers |
-| Certificate Management | Let's Encrypt (Apache) + keytool PKCS12 (Spring) |
-| Password Storage | BCrypt hashing (Spring Security) — never plain text |
-| Authentication | JWT tokens (HMAC-SHA256) |
-| Authorization | Token validation filter on all `/api/*` routes |
-| Server-to-Server Auth | Mutual TLS (mTLS) with TrustStore |
-| Config Management | 12-factor: all secrets in environment variables |
-| Session | Stateless (JWT), stored in sessionStorage |
+| Transporte cifrado | HTTPS/TLS en ambos servidores |
+| Certificados | Auto-firmados (keytool PKCS12) |
+| Almacenamiento de contraseñas | BCrypt strength-10 (nunca texto plano) |
+| Autenticación | JWT tokens firmados con HMAC-SHA256 |
+| Autorización | JwtFilter en todas las rutas `/api/*` |
+| Configuración | Variables de entorno (12-factor principio III) |
+| Sesión | Stateless — JWT en sessionStorage |
+| Headers de seguridad | HSTS, X-Frame-Options, X-Content-Type-Options |
 
 ---
 
-## 📁 Project Structure
+## Estructura del Proyecto
 
 ```
-secure-app/
-├── login-service/                  # Spring server 1 — Authentication
-│   ├── pom.xml
-│   └── src/main/java/com/eci/security/
-│       ├── Main.java               # Embedded Jetty + HTTPS
+Secure-Application-Design/
+├── spring-server/                        # Servidor 2 — Spring Framework
+│   ├── pom.xml                           # Maven — Spring 5, Jetty embebido
+│   └── src/main/java/com/eci/secureapp/
+│       ├── Main.java                     # Arranque Jetty + HTTPS
 │       ├── config/
-│       │   ├── AppConfig.java      # Spring MVC config
-│       │   ├── SecurityConfig.java # Spring Security + BCrypt
-│       │   └── CorsFilter.java     # CORS for Apache client
+│       │   ├── AppConfig.java            # Spring MVC
+│       │   ├── SecurityConfig.java       # Spring Security + BCrypt
+│       │   ├── CorsFilter.java           # CORS para el cliente Apache
+│       │   └── JwtFilter.java            # Validación JWT en /api/*
 │       ├── model/
 │       │   ├── User.java
-│       │   └── LoginRequest.java
+│       │   └── AuthRequest.java
 │       ├── service/
-│       │   ├── UserDetailsServiceImpl.java  # BCrypt user store
-│       │   └── TokenService.java   # JWT generation/validation
+│       │   ├── UserService.java          # Usuarios en memoria con BCrypt
+│       │   └── JwtService.java           # Generación/validación JWT
 │       └── controller/
-│           └── AuthController.java # /api/auth/login, /register
+│           ├── AuthController.java       # /api/auth/login, /register
+│           └── ApiController.java        # /api/hello, /data, /whoami
 │
-├── backend-service/                # Spring server 2 — REST APIs
-│   ├── pom.xml
-│   └── src/main/java/com/eci/backend/
-│       ├── Main.java               # Embedded Jetty + HTTPS + mTLS
-│       ├── config/
-│       │   ├── AppConfig.java
-│       │   ├── CorsFilter.java
-│       │   └── TokenAuthFilter.java  # JWT validation on /api/*
-│       └── controller/
-│           └── BackendController.java  # /api/hello, /data, /secure-info
-│
-├── apache-client/                  # Static HTML/JS served by Apache
-│   ├── html/index.html             # Single-page async application
-│   ├── css/styles.css
-│   └── js/
-│       ├── config.js               # Server URLs (12-factor config)
-│       └── app.js                  # Async fetch logic
+├── apache-client/                        # Servidor 1 — Cliente HTML/JS
+│   └── html/
+│       ├── index.html                    # SPA con login y dashboard
+│       ├── app.js                        # Async fetch API
+│       ├── config.js                     # URLs de servidores (12-factor)
+│       └── styles.css                    # Estilos
 │
 ├── scripts/
-│   ├── generate-certs.sh           # keytool commands for all keystores
-│   ├── setup-apache.sh             # Apache + Let's Encrypt on AL2023
-│   └── deploy-aws.sh               # Build + deploy to EC2 via SSH
+│   ├── generate-certs.sh                 # Genera keystores con keytool
+│   ├── deploy-spring.sh                  # Despliega Spring en EC2
+│   └── deploy-apache.sh                  # Configura Apache en EC2
 │
 └── docs/
-    ├── README.md                   # This file
-    └── architecture.md             # Detailed architecture document
+    ├── README.md                         # Este archivo
+    └── architecture.md                   # Documento de arquitectura
 ```
 
 ---
 
-## ⚡ Quick Start (Local Development)
+## Guía de Despliegue Local
 
-### Prerequisites
-
-- Java 11+: `java -version`
-- Maven 3.8+: `mvn -version`
-- Java keytool (included with JDK)
-
-### 1. Generate certificates
+### Prerrequisitos
 
 ```bash
-cd scripts/
-chmod +x generate-certs.sh
-./generate-certs.sh
+java -version    # Java 11+
+mvn -version     # Maven 3.6+
+keytool -help    # Incluido con el JDK
 ```
 
-This creates:
-- `login-service/src/main/resources/keystore/loginkeystore.p12`
-- `login-service/src/main/resources/keystore/myTrustStore`
-- `backend-service/src/main/resources/keystore/backendkeystore.p12`
-- `backend-service/src/main/resources/keystore/myTrustStore`
-
-### 2. Build both services
+### Paso 1 — Generar certificado
 
 ```bash
-# Terminal 1
-cd login-service/
+# En Windows (Git Bash)
+export PATH="$PATH:/c/Program Files/Java/jdk-17/bin"
+
+keytool -genkeypair \
+  -alias serverkeypair \
+  -keyalg RSA -keysize 2048 \
+  -storetype PKCS12 \
+  -keystore spring-server/src/main/resources/keystore/serverkeystore.p12 \
+  -storepass changeit -keypass changeit \
+  -validity 3650 \
+  -dname "CN=localhost, OU=ECI, O=ECI, L=Bogota, ST=Cundinamarca, C=CO" \
+  -noprompt
+```
+
+### Paso 2 — Compilar
+
+```bash
+cd spring-server
 mvn clean package -DskipTests
-
-# Terminal 2
-cd backend-service/
-mvn clean package -DskipTests
 ```
 
-### 3. Start Login Service (port 5000)
+### Paso 3 — Iniciar servidor Spring
 
 ```bash
-cd login-service/
-
-# Set environment variables (12-factor principle)
-export PORT=5000
-export KEYSTORE_PATH=src/main/resources/keystore/loginkeystore.p12
-export KEYSTORE_PASSWORD=changeit
-export KEYSTORE_ALIAS=loginkeypair
-export TRUSTSTORE_PATH=src/main/resources/keystore/myTrustStore
-export TRUSTSTORE_PASSWORD=changeit
-export TOKEN_SECRET=my-super-secret-dev-key-change-in-prod
-export ALLOWED_ORIGIN=*
-
-java -jar target/*-fat.jar
+# En Windows (Git Bash) — pasar variables inline
+KEYSTORE_PATH=src/main/resources/keystore/serverkeystore.p12 \
+KEYSTORE_PASS=changeit \
+KEYSTORE_ALIAS=serverkeypair \
+PORT=8443 \
+TOKEN_SECRET=mi-secreto-dev \
+ALLOWED_ORIGIN=* \
+java -jar target/secure-app-1.0.jar
 ```
 
-### 4. Start Backend Service (port 6000)
+### Paso 4 — Configurar el cliente
 
-```bash
-cd backend-service/
-
-export PORT=6000
-export KEYSTORE_PATH=src/main/resources/keystore/backendkeystore.p12
-export KEYSTORE_PASSWORD=changeit
-export KEYSTORE_ALIAS=backendkeypair
-export TRUSTSTORE_PATH=src/main/resources/keystore/myTrustStore
-export TRUSTSTORE_PASSWORD=changeit
-export TOKEN_SECRET=my-super-secret-dev-key-change-in-prod   # SAME as login service
-export ALLOWED_ORIGIN=*
-
-java -jar target/*-fat.jar
-```
-
-### 5. Configure and open the client
-
-Edit `apache-client/js/config.js` and uncomment the localhost URLs:
+Edita `apache-client/html/config.js`:
 
 ```js
-LOGIN_SERVICE_URL:   "https://localhost:5000",
-BACKEND_SERVICE_URL: "https://localhost:6000",
+const CONFIG = Object.freeze({
+  SPRING_URL: "https://localhost:8443",
+  TOKEN_KEY:    "eci_token",
+  USERNAME_KEY: "eci_user",
+  TIMEOUT_MS: 10000,
+});
 ```
 
-Then open `apache-client/html/index.html` in your browser.
+### Paso 5 — Abrir cliente
 
-> **Note:** Your browser will show a security warning for the self-signed certificate. Click "Advanced → Proceed" to continue. In production, Let's Encrypt certificates avoid this.
-
-**Default credentials:**
-- `admin` / `Admin123!`
-- `user1` / `User123!`
+1. Abre `https://localhost:8443/health` en el navegador y acepta el certificado
+2. Abre `apache-client/html/index.html` en el navegador
+3. Login con `admin / Admin123!`
 
 ---
 
-## ☁️ AWS Deployment
+## Guía de Despliegue en AWS
 
-### EC2 Instance Requirements
+### Infraestructura
 
-| Instance | Type | Ports | Purpose |
+| Instancia | Tipo | Puertos | Propósito |
 |---|---|---|---|
-| Instance 1 | t2.micro | 22, 80, 443 | Apache + HTML/JS Client |
-| Instance 2 | t2.micro | 22, 5000 | Login Service |
-| Instance 3 | t2.micro | 22, 6000 | Backend Service |
+| eci-apache-server | t2.micro | 22, 80, 443 | Apache + Cliente HTML/JS |
+| workshop-spring | t2.micro | 22, 8443 | Spring REST APIs |
 
-All instances should run **Amazon Linux 2023 (AL2023)**.
+### Security Groups
 
-### Step 1: Setup Apache (Instance 1)
+**eci-apache-sg:**
+- SSH (22) — My IP
+- HTTP (80) — 0.0.0.0/0
+- HTTPS (443) — 0.0.0.0/0
 
-```bash
-# SSH into Instance 1
-ssh -i your-key.pem ec2-user@<INSTANCE_1_IP>
+**eci-spring-sg:**
+- SSH (22) — My IP
+- Custom TCP (8443) — 0.0.0.0/0
 
-# Upload and run setup script
-scp -i your-key.pem scripts/setup-apache.sh ec2-user@<INSTANCE_1_IP>:~
-ssh -i your-key.pem ec2-user@<INSTANCE_1_IP> "chmod +x setup-apache.sh && sudo ./setup-apache.sh your-domain.com"
-```
-
-### Step 2: Generate production certificates
-
-For production, re-run `generate-certs.sh` with your real EC2 hostnames:
+### Despliegue Spring (Instancia 2)
 
 ```bash
-# Edit generate-certs.sh and set:
-LOGIN_HOST="<INSTANCE_2_PUBLIC_DNS>"
-BACKEND_HOST="<INSTANCE_3_PUBLIC_DNS>"
+KEY=~/.ssh/tu-key.pem
+SPRING_IP=54.197.195.207
 
-./generate-certs.sh
+# Instalar Java
+ssh -i $KEY ec2-user@$SPRING_IP \
+  "sudo dnf install -y java-11-amazon-corretto"
+
+# Crear directorios
+ssh -i $KEY ec2-user@$SPRING_IP \
+  "mkdir -p /home/ec2-user/app/keystore"
+
+# Copiar JAR y keystore
+scp -i $KEY spring-server/target/secure-app-1.0.jar \
+  ec2-user@$SPRING_IP:/home/ec2-user/app/
+
+scp -i $KEY spring-server/src/main/resources/keystore/serverkeystore.p12 \
+  ec2-user@$SPRING_IP:/home/ec2-user/app/keystore/
+
+# Crear servicio systemd (conectarse a la instancia primero)
+ssh -i $KEY ec2-user@$SPRING_IP
 ```
 
-### Step 3: Deploy Spring services
+Dentro de la instancia:
 
 ```bash
-chmod +x scripts/deploy-aws.sh
-./scripts/deploy-aws.sh \
-  --key ~/.ssh/your-key.pem \
-  --login-ip <INSTANCE_2_IP> \
-  --backend-ip <INSTANCE_3_IP>
+printf '[Unit]\nDescription=ECI Secure App\nAfter=network.target\n\n[Service]\nType=simple\nUser=ec2-user\nWorkingDirectory=/home/ec2-user/app\nExecStart=/usr/bin/java -jar /home/ec2-user/app/secure-app-1.0.jar\nRestart=always\nEnvironment=PORT=8443\nEnvironment=KEYSTORE_PATH=/home/ec2-user/app/keystore/serverkeystore.p12\nEnvironment=KEYSTORE_PASS=changeit\nEnvironment=KEYSTORE_ALIAS=serverkeypair\nEnvironment=TOKEN_SECRET=mi-secreto-seguro\nEnvironment=ALLOWED_ORIGIN=*\n\n[Install]\nWantedBy=multi-user.target\n' | sudo tee /etc/systemd/system/secure-app.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable secure-app
+sudo systemctl start secure-app
 ```
 
-### Step 4: Update client config
-
-Edit `apache-client/js/config.js`:
-
-```js
-LOGIN_SERVICE_URL:   "https://<INSTANCE_2_IP>:5000",
-BACKEND_SERVICE_URL: "https://<INSTANCE_3_IP>:6000",
-```
-
-Upload updated files to Instance 1:
+### Despliegue Apache (Instancia 1)
 
 ```bash
-scp -i your-key.pem -r apache-client/* ec2-user@<INSTANCE_1_IP>:/var/www/html/
+KEY=~/.ssh/tu-key.pem
+APACHE_IP=18.207.125.2
+
+# Conectarse
+ssh -i $KEY ec2-user@$APACHE_IP
+
+# Dentro de la instancia:
+sudo dnf install -y httpd mod_ssl
+sudo systemctl start httpd
+sudo systemctl enable httpd
+
+# Generar certificado TLS
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/pki/tls/private/apache-eci.key \
+  -out /etc/pki/tls/certs/apache-eci.crt \
+  -subj "/C=CO/ST=Cundinamarca/L=Bogota/O=ECI/CN=18.207.125.2"
 ```
 
-### Step 5: Set the same TOKEN_SECRET on both services
+Subir archivos del cliente:
 
 ```bash
-# Generate a random secret
-SECRET=$(openssl rand -hex 32)
-echo $SECRET
+# Desde tu máquina local
+sudo chown -R ec2-user:ec2-user /var/www/html
 
-# Set on Instance 2 (login-service)
-ssh -i your-key.pem ec2-user@<INSTANCE_2_IP> \
-  "sudo systemctl edit login-service --force"
-# Add: Environment=TOKEN_SECRET=<your-secret>
-
-# Set on Instance 3 (backend-service) — SAME secret
-ssh -i your-key.pem ec2-user@<INSTANCE_3_IP> \
-  "sudo systemctl edit backend-service --force"
-# Add: Environment=TOKEN_SECRET=<your-secret>
-
-# Restart both services
-ssh -i your-key.pem ec2-user@<INSTANCE_2_IP> "sudo systemctl restart login-service"
-ssh -i your-key.pem ec2-user@<INSTANCE_3_IP> "sudo systemctl restart backend-service"
+scp -i $KEY apache-client/html/index.html  ec2-user@$APACHE_IP:/var/www/html/
+scp -i $KEY apache-client/html/config.js   ec2-user@$APACHE_IP:/var/www/html/
+scp -i $KEY apache-client/html/app.js      ec2-user@$APACHE_IP:/var/www/html/
+scp -i $KEY apache-client/html/styles.css  ec2-user@$APACHE_IP:/var/www/html/
 ```
 
 ---
 
-## 🧪 Testing the API Manually
+## Pruebas de la API
 
 ```bash
-# Health checks (no auth needed)
-curl -sk https://localhost:5000/health | python3 -m json.tool
-curl -sk https://localhost:6000/health | python3 -m json.tool
+# Health check (público)
+curl -sk https://54.197.195.207:8443/health
 
-# Login and get a token
-TOKEN=$(curl -sk -X POST https://localhost:5000/api/auth/login \
-  -H "Content-Type: application/json" \
+# Login
+TOKEN=$(curl -sk -X POST https://54.197.195.207:8443/api/auth/login \
+  -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"Admin123!"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
-echo "Token: $TOKEN"
+# Endpoint protegido CON token
+curl -sk https://54.197.195.207:8443/api/hello \
+  -H "Authorization: Bearer $TOKEN"
 
-# Call protected backend endpoints with the token
-curl -sk https://localhost:6000/api/hello \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-curl -sk https://localhost:6000/api/data \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-curl -sk https://localhost:6000/api/secure-info \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+# SIN token — debe dar 401
+curl -sk https://54.197.195.207:8443/api/hello
 ```
 
 ---
 
-## 🌿 12-Factor App Compliance
+## Variables de Entorno
 
-This project follows the [12-factor methodology](https://12factor.net/):
-
-| Factor | Implementation |
-|---|---|
-| I. Codebase | Single Git repo, tracked in GitHub |
-| II. Dependencies | All declared in `pom.xml`, no implicit deps |
-| III. Config | All secrets/URLs in environment variables |
-| IV. Backing services | Keystore files treated as attached resources |
-| VI. Processes | Stateless — JWT-based, no server-side sessions |
-| VII. Port binding | Port from `PORT` env variable |
-| IX. Disposability | Fast startup with embedded Jetty |
-| XI. Logs | Written to stdout (captured by systemd) |
+| Variable | Default | Descripción |
+|---|---|---|
+| `PORT` | `8443` | Puerto HTTPS |
+| `KEYSTORE_PATH` | `src/.../serverkeystore.p12` | Ruta al keystore PKCS12 |
+| `KEYSTORE_PASS` | `changeit` | Contraseña del keystore |
+| `KEYSTORE_ALIAS` | `serverkeypair` | Alias del certificado |
+| `TOKEN_SECRET` | (dev fallback) | Secreto para firmar JWT — **cambiar en producción** |
+| `ALLOWED_ORIGIN` | `*` | Origen permitido para CORS |
 
 ---
 
-## 📝 Environment Variables Reference
+## Usuarios por Defecto
 
-### Login Service
-
-| Variable | Default | Description |
+| Usuario | Contraseña | Rol |
 |---|---|---|
-| `PORT` | `5000` | HTTPS port |
-| `KEYSTORE_PATH` | `src/.../loginkeystore.p12` | Path to PKCS12 keystore |
-| `KEYSTORE_PASSWORD` | `changeit` | Keystore password |
-| `KEYSTORE_ALIAS` | `loginkeypair` | Certificate alias |
-| `TRUSTSTORE_PATH` | `src/.../myTrustStore` | Path to JKS truststore |
-| `TRUSTSTORE_PASSWORD` | `changeit` | Truststore password |
-| `TOKEN_SECRET` | (dev fallback) | **Change in production!** |
-| `ALLOWED_ORIGIN` | `*` | CORS allowed origin |
+| `admin` | `Admin123!` | ROLE_ADMIN |
+| `student` | `Student123!` | ROLE_USER |
 
-### Backend Service
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `6000` | HTTPS port |
-| `KEYSTORE_PATH` | `src/.../backendkeystore.p12` | Path to PKCS12 keystore |
-| `KEYSTORE_PASSWORD` | `changeit` | Keystore password |
-| `KEYSTORE_ALIAS` | `backendkeypair` | Certificate alias |
-| `TRUSTSTORE_PATH` | `src/.../myTrustStore` | Path to JKS truststore |
-| `TRUSTSTORE_PASSWORD` | `changeit` | Truststore password |
-| `TOKEN_SECRET` | (dev fallback) | **Must match login-service!** |
-| `ALLOWED_ORIGIN` | `*` | CORS allowed origin |
+> Las contraseñas se almacenan como hashes BCrypt. Nunca en texto plano.
 
 ---
 
-## 🛠️ Troubleshooting
+---
 
-**Browser says "Not Secure" for Spring services:**
-In local dev this is expected (self-signed certs). Open `https://localhost:5000/health` and click "Proceed" to add a security exception, then open `https://localhost:6000/health` and do the same. Now the client can call them.
+## Screenshots del Laboratorio
 
-**`Connection refused` on port 5000/6000:**
-Check service is running: `sudo systemctl status login-service`
-Check logs: `sudo journalctl -u login-service -n 100`
+### Instancia 1 — Apache Server (workshop-apache)
+**IP Pública:** 18.207.125.2 | **Estado:** Running
 
-**`401 Unauthorized` on backend calls:**
-Ensure `TOKEN_SECRET` is identical on both services.
+![img1.png](../images/img1.png)
 
-**Certificate errors between services:**
-Ensure TrustStores contain the other service's certificate. Re-run `generate-certs.sh`.
+---
+
+### Instancia 2 — Spring Server (workshop-spring)
+**IP Pública:** 54.197.195.207 | **Estado:** Running
+
+![img2.png](../images/img2.png)
+
+---
+
+### Cliente HTTPS sobre Apache + Dashboard con APIs funcionando
+El cliente HTML/JS se sirve desde Apache sobre HTTPS (`https://18.207.125.2`).  
+El usuario `admin` está autenticado con JWT. Se muestran las respuestas de  
+`/api/hello`, `/api/data` y `/api/whoami` — protegidas por el `JwtFilter` en Spring.
+
+![img3.png](../images/img3.png)
+
+![img6.png](../images/img6.png)
+
+---
+
+### Endpoint sin token → 401 Unauthorized
+Llamada directa a `https://54.197.195.207:8443/api/hello` sin header  
+`Authorization`. El `JwtFilter` rechaza la petición con **401 Unauthorized**  
+y el mensaje `"Missing Authorization header"`. Demuestra que los endpoints  
+están correctamente protegidos.
+
+![img4.png](../images/img4.png)
+
+---
+
+### Estructura del Proyecto en el IDE
+Estructura completa del proyecto mostrando todos los paquetes Java:  
+`config` (AppConfig, CorsFilter, JwtFilter, SecurityConfig),  
+`controller` (ApiController, AuthController),  
+`model` (AuthRequest, User),  
+`service` (JwtService, UserService) y el keystore PKCS12.
+
+![img5.png](../images/img5.png)
+
+---
+
+## Video de Demostración
+
+El siguiente video demuestra el despliegue completo de la aplicación en AWS y explica las características de seguridad implementadas:
+
+[2026-03-22 14-07-08.mkv](../video/2026-03-22%2014-07-08.mkv)
+
+**El video cubre:**
+- Las 2 instancias EC2 corriendo en AWS
+- Cliente web servido por Apache sobre HTTPS
+- Login con autenticación BCrypt
+- Llamadas a los endpoints protegidos con JWT
+- Demostración del 401 sin token
+- Explicación de las características de seguridad: TLS, BCrypt, JWT, 12-factor
+
+
+
+## Tecnologías Usadas
+
+| Tecnología | Versión | Propósito |
+|---|---|---|
+| Java | 11 | Lenguaje de programación |
+| Spring Framework | 5.3.27 | Framework web (sin Spring Boot) |
+| Spring Security | 5.7.8 | Seguridad y BCrypt |
+| Jetty | 9.4.51 | Servidor embebido (sin app server externo) |
+| Maven | 3.8+ | Gestión de dependencias |
+| Apache httpd | 2.4.66 | Servidor web para el cliente |
+| BCrypt | strength-10 | Hash de contraseñas |
+| JWT | HMAC-SHA256 | Tokens de autenticación |
+| PKCS12 | RSA 2048 | Formato del keystore TLS |
+| Amazon Linux | 2023 | Sistema operativo EC2 |
+
+---
+
+## Referencias
+
+- Spring Framework 5.3: https://docs.spring.io/spring-framework/docs/5.3.x/reference/html/
+- Spring Security 5.7: https://docs.spring.io/spring-security/reference/5.7/
+- AWS AL2023 LAMP Setup: https://docs.aws.amazon.com/linux/al2023/ug/ec2-lamp-amazon-linux-2023.html
+- keytool Oracle docs: https://docs.oracle.com/en/java/javase/11/tools/keytool.html
+- 12-factor App: https://12factor.net/
+- Taller Arquitectura Segura — Luis Daniel Benavides Navarro

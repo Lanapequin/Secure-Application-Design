@@ -6,11 +6,10 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.eci</groupId>
-    <artifactId>login-service</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <artifactId>secure-app</artifactId>
+    <version>1.0</version>
     <packaging>jar</packaging>
-
-    <name>Login Service - Secure App</name>
+    <name>ECI Secure App - Spring Server</name>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
@@ -23,7 +22,7 @@
     </properties>
 
     <dependencies>
-        <!-- Spring Core & Web MVC -->
+        <!-- Spring Web MVC -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-webmvc</artifactId>
@@ -35,7 +34,7 @@
             <version>${spring.version}</version>
         </dependency>
 
-        <!-- Spring Security -->
+        <!-- Spring Security (BCrypt + auth) -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-web</artifactId>
@@ -52,7 +51,7 @@
             <version>${spring.security.version}</version>
         </dependency>
 
-        <!-- Jackson for JSON -->
+        <!-- Jackson JSON -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -64,10 +63,10 @@
             <groupId>javax.servlet</groupId>
             <artifactId>javax.servlet-api</artifactId>
             <version>4.0.1</version>
-            <scope>provided</scope>
+            <scope>compile</scope>
         </dependency>
 
-        <!-- Embedded Jetty (to run without app server) -->
+        <!-- Embedded Jetty (runs without external app server) -->
         <dependency>
             <groupId>org.eclipse.jetty</groupId>
             <artifactId>jetty-server</artifactId>
@@ -75,17 +74,12 @@
         </dependency>
         <dependency>
             <groupId>org.eclipse.jetty</groupId>
-            <artifactId>jetty-webapp</artifactId>
-            <version>${jetty.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.jetty</groupId>
-            <artifactId>jetty-util</artifactId>
-            <version>${jetty.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.jetty</groupId>
             <artifactId>jetty-servlet</artifactId>
+            <version>${jetty.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-webapp</artifactId>
             <version>${jetty.version}</version>
         </dependency>
         <dependency>
@@ -109,17 +103,7 @@
 
     <build>
         <plugins>
-            <!-- Maven WAR plugin -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-war-plugin</artifactId>
-                <version>3.3.2</version>
-                <configuration>
-                    <failOnMissingWebXml>false</failOnMissingWebXml>
-                </configuration>
-            </plugin>
-
-            <!-- Shade plugin to produce fat JAR -->
+            <!-- Produces a single fat JAR with all dependencies -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -151,8 +135,7 @@
                                     </excludes>
                                 </filter>
                             </filters>
-                            <shadedArtifactAttached>true</shadedArtifactAttached>
-                            <shadedClassifierName>fat</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                         </configuration>
                     </execution>
                 </executions>

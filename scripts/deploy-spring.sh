@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$KEY_FILE" ] || [ -z "$LOGIN_IP" ] || [ -z "$BACKEND_IP" ]; then
-  echo "❌ Usage: ./deploy-aws.sh --key <pem-file> --login-ip <ip> --backend-ip <ip>"
+  echo "Usage: ./deploy-aws.sh --key <pem-file> --login-ip <ip> --backend-ip <ip>"
   exit 1
 fi
 
@@ -86,7 +86,7 @@ install_java() {
     sudo dnf install -y java-11-amazon-corretto &&
     java -version
   "
-  echo "   ✅ Java 11 installed."
+  echo "Java 11 installed."
 }
 
 create_systemd_service() {
@@ -134,13 +134,13 @@ echo "   Building login-service..."
 cd "$PROJECT_ROOT/login-service"
 mvn clean package -q -DskipTests
 LOGIN_JAR=$(ls target/*-fat.jar 2>/dev/null || ls target/*.jar | head -1)
-echo "   ✅ Login JAR: $LOGIN_JAR"
+echo "    Login JAR: $LOGIN_JAR"
 
 echo "   Building backend-service..."
 cd "$PROJECT_ROOT/backend-service"
 mvn clean package -q -DskipTests
 BACKEND_JAR=$(ls target/*-fat.jar 2>/dev/null || ls target/*.jar | head -1)
-echo "   ✅ Backend JAR: $BACKEND_JAR"
+echo "    Backend JAR: $BACKEND_JAR"
 
 cd "$PROJECT_ROOT"
 
@@ -162,7 +162,7 @@ scp_file "$PROJECT_ROOT/login-service/$LOGIN_JAR" "$LOGIN_IP" "/opt/login-servic
 # Copy keystore files
 scp_file "$PROJECT_ROOT/login-service/src/main/resources/keystore/." "$LOGIN_IP" "/opt/login-service/keystore/"
 
-echo "   ✅ Login Service files deployed."
+echo "    Login Service files deployed."
 
 # Create systemd service with env vars
 create_systemd_service \
@@ -180,7 +180,7 @@ Environment=ALLOWED_ORIGIN=*" \
   "ECI Login Service"
 
 ssh_cmd "$LOGIN_IP" "sudo systemctl start login-service && sudo systemctl status login-service --no-pager"
-echo "   ✅ Login Service started on port $LOGIN_PORT."
+echo "    Login Service started on port $LOGIN_PORT."
 
 # ─── Step 4: Deploy Backend Service ───────────────────────────────────────────
 echo ""
@@ -191,7 +191,7 @@ ssh_cmd "$BACKEND_IP" "sudo mkdir -p /opt/backend-service/keystore && sudo chown
 scp_file "$PROJECT_ROOT/backend-service/$BACKEND_JAR" "$BACKEND_IP" "/opt/backend-service/app.jar"
 scp_file "$PROJECT_ROOT/backend-service/src/main/resources/keystore/." "$BACKEND_IP" "/opt/backend-service/keystore/"
 
-echo "   ✅ Backend Service files deployed."
+echo "    Backend Service files deployed."
 
 create_systemd_service \
   "$BACKEND_IP" \
@@ -208,7 +208,7 @@ Environment=ALLOWED_ORIGIN=*" \
   "ECI Backend Service"
 
 ssh_cmd "$BACKEND_IP" "sudo systemctl start backend-service && sudo systemctl status backend-service --no-pager"
-echo "   ✅ Backend Service started on port $BACKEND_PORT."
+echo "    Backend Service started on port $BACKEND_PORT."
 
 # ─── Step 5: Open firewall ports ──────────────────────────────────────────────
 echo ""
@@ -221,8 +221,8 @@ for HOST in "$LOGIN_IP" "$BACKEND_IP"; do
     sudo firewall-cmd --reload 2>/dev/null || true
   "
 done
-echo "   ✅ Ports opened (if firewalld is active)."
-echo "   ⚠️  Also verify AWS Security Groups allow these ports in the console."
+echo "    Ports opened (if firewalld is active)."
+echo "    Also verify AWS Security Groups allow these ports in the console."
 
 # ─── Step 6: Health check ─────────────────────────────────────────────────────
 echo ""
@@ -231,26 +231,26 @@ sleep 5  # Give services a moment to start
 
 echo "   Checking Login Service health..."
 ssh_cmd "$LOGIN_IP" "curl -sk https://localhost:$LOGIN_PORT/health | python3 -m json.tool" || \
-  echo "   ⚠️  Login Service health check failed — check logs with: sudo journalctl -u login-service -n 50"
+  echo "     Login Service health check failed — check logs with: sudo journalctl -u login-service -n 50"
 
 echo "   Checking Backend Service health..."
 ssh_cmd "$BACKEND_IP" "curl -sk https://localhost:$BACKEND_PORT/health | python3 -m json.tool" || \
-  echo "   ⚠️  Backend Service health check failed — check logs with: sudo journalctl -u backend-service -n 50"
+  echo "   ️  Backend Service health check failed — check logs with: sudo journalctl -u backend-service -n 50"
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "================================================================="
-echo "  ✅ Deployment COMPLETE"
+echo "   Deployment COMPLETE"
 echo "================================================================="
 echo ""
 echo "  Login Service:   https://$LOGIN_IP:$LOGIN_PORT"
 echo "  Backend Service: https://$BACKEND_IP:$BACKEND_PORT"
 echo ""
-echo "  ⚠️  IMPORTANT — Update config.js with real host addresses:"
+echo "    IMPORTANT — Update config.js with real host addresses:"
 echo "     LOGIN_SERVICE_URL:   \"https://$LOGIN_IP:$LOGIN_PORT\""
 echo "     BACKEND_SERVICE_URL: \"https://$BACKEND_IP:$BACKEND_PORT\""
 echo ""
-echo "  ⚠️  IMPORTANT — Set the SAME TOKEN_SECRET on both services!"
+echo "    IMPORTANT — Set the SAME TOKEN_SECRET on both services!"
 echo "     Generate one with: openssl rand -hex 32"
 echo ""
 echo "  Useful commands:"

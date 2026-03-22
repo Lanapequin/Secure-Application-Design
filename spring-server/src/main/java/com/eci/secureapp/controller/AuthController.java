@@ -1,107 +1,82 @@
 package com.eci.secureapp.controller;
 
-import com.eci.secureapp.model.LoginRequest;
-import com.eci.secureapp.service.TokenService;
-import com.eci.secureapp.service.UserDetailsServiceImpl;
+import com.eci.secureapp.model.AuthRequest;
+import com.eci.secureapp.service.JwtService;
+import com.eci.secureapp.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Authentication controller.
- * POST /api/auth/login  - authenticate and receive a token
- * POST /api/auth/register - register a new user
- * GET  /health          - health check
+ * Public authentication endpoints.
+ * POST /api/auth/login    — returns a JWT token
+ * POST /api/auth/register — creates a new user
  */
 @RestController
-@RequestMapping
+@RequestMapping("/api/auth")
 public class AuthController {
 
-    @Autowired
-    private AuthenticationManager authenticationManager;
+    @Autowired private AuthenticationManager authManager;
+    @Autowired private JwtService            jwtService;
+    @Autowired private UserService           userService;
 
-    @Autowired
-    private TokenService tokenService;
-
-    @Autowired
-    private UserDetailsServiceImpl userDetailsService;
-
-    @GetMapping("/health")
-    public ResponseEntity<Map<String, String>> health() {
-        Map<String, String> response = new HashMap<>();
-        response.put("status", "UP");
-        response.put("service", "login-service");
-        return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/api/auth/login")
-    public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest request) {
-        Map<String, Object> response = new HashMap<>();
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody AuthRequest req) {
+        if (req.getUsername() == null || req.getPassword() == null)
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Username and password are required"));
         try {
-            Authentication auth = authenticationManager.authenticate(
+            Authentication auth = authManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
-                            request.getUsername(), request.getPassword())
-            );
+                            req.getUsername(), req.getPassword()));
 
             String role = auth.getAuthorities().stream()
                     .map(GrantedAuthority::getAuthority)
-                    .findFirst()
-                    .orElse("ROLE_USER");
+                    .findFirst().orElse("ROLE_USER");
 
-            String token = tokenService.generateToken(request.getUsername(), role);
+            String token = jwtService.generate(req.getUsername(), role);
 
-            response.put("success", true);
-            response.put("token", token);
-            response.put("username", request.getUsername());
-            response.put("role", role);
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(Map.of(
+                    "success",  true,
+                    "token",    token,
+                    "username", req.getUsername(),
+                    "role",     role
+            ));
 
         } catch (BadCredentialsException e) {
-            response.put("success", false);
-            response.put("error", "Invalid username or password");
-            return ResponseEntity.status(401).body(response);
+            return ResponseEntity.status(401)
+                    .body(Map.of("error", "Invalid username or password"));
         } catch (Exception e) {
-            response.put("success", false);
-            response.put("error", "Authentication failed");
-            return ResponseEntity.status(500).body(response);
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Authentication failed: " + e.getMessage()));
         }
     }
 
-    @PostMapping("/api/auth/register")
-    public ResponseEntity<Map<String, Object>> register(@RequestBody LoginRequest request) {
-        Map<String, Object> response = new HashMap<>();
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody AuthRequest req) {
+        if (req.getUsername() == null || req.getUsername().length() < 3)
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Username must be at least 3 characters"));
 
-        if (request.getUsername() == null || request.getUsername().length() < 3) {
-            response.put("success", false);
-            response.put("error", "Username must be at least 3 characters");
-            return ResponseEntity.badRequest().body(response);
-        }
+        if (req.getPassword() == null || req.getPassword().length() < 6)
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Password must be at least 6 characters"));
 
-        if (request.getPassword() == null || request.getPassword().length() < 6) {
-            response.put("success", false);
-            response.put("error", "Password must be at least 6 characters");
-            return ResponseEntity.badRequest().body(response);
-        }
+        boolean created = userService.register(
+                req.getUsername(), req.getPassword(), "ROLE_USER");
 
-        boolean created = userDetailsService.registerUser(
-                request.getUsername(), request.getPassword(), "ROLE_USER");
+        if (!created)
+            return ResponseEntity.status(409)
+                    .body(Map.of("error", "Username already exists"));
 
-        if (!created) {
-            response.put("success", false);
-            response.put("error", "Username already exists");
-            return ResponseEntity.status(409).body(response);
-        }
-
-        response.put("success", true);
-        response.put("message", "User registered successfully");
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "User registered successfully. You can now log in."
+        ));
     }
 }

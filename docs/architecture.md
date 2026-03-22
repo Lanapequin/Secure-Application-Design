@@ -1,286 +1,328 @@
-# Architecture Document — Secure App
+# Documento de Arquitectura — Secure App
 ## ECI Workshop: Arquitectura Segura con Certificados Digitales
 
-**Author:** [Your Name]  
-**Date:** 2024  
-**Course:** Arquitectura de Software — Escuela Colombiana de Ingeniería Julio Garavito
+**Estudiante:** Laura Natalia Perilla Quintero
+---
+
+## 1. Introducción
+
+Este documento describe la arquitectura de una aplicación web segura construida siguiendo los principios del taller *Arquitectura Segura con Certificados Digitales*. El sistema está compuesto por dos servidores desplegados en AWS, que se comunican exclusivamente sobre canales cifrados HTTPS/TLS.
+
+El objetivo del sistema es demostrar cómo garantizar **integridad**, **confidencialidad**, **autenticación** y **autorización** tanto a nivel de usuario como a nivel de comunicación entre cliente y servidor.
 
 ---
 
-## 1. Introduction
+## 2. Arquitectura del Sistema
 
-This document describes the design and security architecture of the Secure App, a multi-server web application built following the principles taught in the *Taller de Arquitectura Segura* workshop. The system is composed of three distinct servers, each with a specific responsibility, communicating exclusively over HTTPS/TLS encrypted channels.
+### 2.1 Diagrama General
 
-The core challenge addressed by this architecture is: *how do you design a web system where integrity, authentication, and authorization are guaranteed at both the user level and the server level?*
+```
+                        Usuario (Browser)
+                              │
+                              │ HTTPS (TLS 1.2+)
+                              │ Certificado auto-firmado
+                              ▼
+               ┌──────────────────────────────────┐
+               │   SERVIDOR 1 — Apache httpd       │
+               │   Amazon Linux 2023               │
+               │   IP Pública: 18.207.125.2        │
+               │   Puerto: 443 (HTTPS)             │
+               │                                  │
+               │   Responsabilidad:               │
+               │   Entregar el cliente HTML/JS     │
+               │   de forma segura al browser      │
+               │                                  │
+               │   Certificado TLS:               │
+               │   Auto-firmado con OpenSSL        │
+               │   (RSA 2048, SHA-256)             │
+               └────────────┬─────────────────────┘
+                            │
+                            │ HTTPS (fetch async)
+                            │ Authorization: Bearer JWT
+                            │
+                            ▼
+               ┌──────────────────────────────────┐
+               │   SERVIDOR 2 — Spring Framework   │
+               │   Amazon Linux 2023               │
+               │   IP Pública: 54.197.195.207      │
+               │   Puerto: 8443 (HTTPS)            │
+               │                                  │
+               │   Responsabilidad:               │
+               │   REST APIs seguras              │
+               │   Autenticación con BCrypt/JWT   │
+               │                                  │
+               │   Certificado TLS:               │
+               │   PKCS12 con keytool (RSA 2048)  │
+               └──────────────────────────────────┘
+```
+
+### 2.2 Componentes
+
+#### Servidor 1 — Apache Web Server
+
+Apache actúa como servidor de presentación. Su única responsabilidad es entregar los archivos estáticos del cliente (HTML, CSS, JavaScript) al navegador del usuario a través de una conexión HTTPS cifrada.
+
+- **Sistema Operativo:** Amazon Linux 2023
+- **Software:** Apache httpd 2.4.66 + mod_ssl
+- **Puerto:** 443 (HTTPS), redirige 80 → 443
+- **TLS:** Certificado auto-firmado generado con OpenSSL (RSA 2048 bits, SHA-256)
+- **Headers de seguridad:** HSTS, X-Frame-Options: DENY, X-Content-Type-Options: nosniff
+
+#### Servidor 2 — Spring Framework
+
+Spring actúa como servidor de lógica de negocio. Expone una API REST protegida que maneja la autenticación de usuarios y sirve datos seguros.
+
+- **Sistema Operativo:** Amazon Linux 2023
+- **Framework:** Spring Framework 5.3.27 (sin Spring Boot)
+- **Servidor embebido:** Jetty 9.4.51
+- **Puerto:** 8443 (HTTPS)
+- **TLS:** Keystore PKCS12 generado con keytool (RSA 2048 bits)
+- **Gestión:** Servicio systemd (arranque automático)
 
 ---
 
-## 2. System Overview
+## 3. Arquitectura del Cliente (HTML/JS Asíncrono)
 
-The application implements a classic three-tier architecture with an important addition: mutual authentication between backend servers.
+El cliente es una Single Page Application (SPA) construida con HTML5, CSS3 y JavaScript puro (sin frameworks). Toda la comunicación con el servidor Spring se realiza de forma **asíncrona** usando la Fetch API del navegador.
 
 ```
-                        ┌─────────────┐
-                        │   Browser   │
-                        └──────┬──────┘
-                               │ HTTPS (TLS 1.2+)
-                               │ Let's Encrypt Certificate
-                               ▼
-                   ┌───────────────────────┐
-                   │   Server 1 — Apache   │
-                   │   (Presentation Tier) │
-                   │   HTML + CSS + JS     │
-                   │   Port 443 / HTTPS    │
-                   └───────┬───────────────┘
-                           │ Async HTTPS (fetch API)
-               ┌───────────┴────────────┐
-               │                        │
-               ▼                        ▼
-  ┌────────────────────┐    ┌────────────────────────┐
-  │  Server 2          │    │  Server 3              │
-  │  Login Service     │    │  Backend Service       │
-  │  (Logic Tier)      │    │  (Logic Tier)          │
-  │  Spring 5 + Jetty  │    │  Spring 5 + Jetty      │
-  │  Port 5000 / HTTPS │    │  Port 6000 / HTTPS     │
-  │  KeyStore: PKCS12  │◀──▶│  KeyStore: PKCS12      │
-  │  TrustStore: JKS   │mTLS│  TrustStore: JKS       │
-  └────────────────────┘    └────────────────────────┘
+index.html          → Estructura de la SPA (login + dashboard)
+styles.css          → Estilos visuales
+config.js           → URLs de los servidores (12-factor)
+app.js              → Lógica de autenticación y llamadas API
+```
+
+### Flujo asíncrono
+
+```javascript
+// Todas las llamadas van sobre HTTPS
+async function http(path, options = {}) {
+  const res = await fetch(CONFIG.SPRING_URL + path, options);
+  // fetch() sobre https:// garantiza cifrado TLS
+  return res.json();
+}
+```
+
+El cliente usa `sessionStorage` para guardar el token JWT — se borra automáticamente cuando el usuario cierra el tab.
+
+---
+
+## 4. Seguridad — Capa por Capa
+
+### 4.1 TLS — Capa de Transporte
+
+Todos los datos viajan cifrados. Ninguna petición se acepta en texto plano.
+
+```
+Servidor 1 (Apache):
+  Protocolo: TLS 1.2+
+  Algoritmo: RSA 2048
+  Cert: Auto-firmado con OpenSSL
+  Cipher: ECDHE-RSA-AES128-GCM-SHA256
+
+Servidor 2 (Spring/Jetty):
+  Protocolo: TLS 1.2, TLS 1.3
+  Algoritmo: RSA 2048
+  Cert: Auto-firmado con keytool PKCS12
+  Keystore: /home/ec2-user/app/keystore/serverkeystore.p12
+```
+
+### 4.2 BCrypt — Almacenamiento de Contraseñas
+
+Las contraseñas **nunca** se almacenan en texto plano. Se usa BCrypt con strength-10:
+
+```java
+// Registro: la contraseña se hashea antes de guardar
+@Bean
+public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder(10);
+}
+
+// BCrypt con strength-10 = 2^10 = 1024 iteraciones
+// Cada hash incluye un salt aleatorio incorporado
+// Ejemplo de hash: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+```
+
+**El hash de BCrypt es unidireccional.** No puede revertirse. Durante el login, Spring Security llama a `passwordEncoder.matches(plain, hash)` para verificar.
+
+### 4.3 JWT — Autenticación Stateless
+
+Después del login exitoso, el servidor emite un token JWT firmado con HMAC-SHA256:
+
+```
+Header:  {"alg":"HS256","typ":"JWT"}
+Payload: {"sub":"admin","role":"ROLE_ADMIN","exp":1774194000000}
+Firma:   HMAC-SHA256(header.payload, TOKEN_SECRET)
+```
+
+**Estructura del token:**
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9    ← Header (base64)
+.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJST0xFX0FETUlOIn0  ← Payload (base64)
+.signature                                ← Firma HMAC-SHA256
+```
+
+El token tiene una validez de 2 horas. Cada petición protegida debe incluirlo:
+
+```
+Authorization: Bearer eyJhbGci...
+```
+
+### 4.4 JwtFilter — Autorización en cada Request
+
+Cada petición a `/api/*` pasa por el `JwtFilter` antes de llegar al controlador:
+
+```
+Request llega a /api/hello
+       │
+       ▼
+JwtFilter.doFilter()
+       │
+       ├── ¿Tiene header "Authorization: Bearer ..."?
+       │         NO → 401 Unauthorized
+       │
+       ├── ¿La firma HMAC-SHA256 es válida?
+       │         NO → 401 Unauthorized
+       │
+       ├── ¿El token ha expirado?
+       │         SÍ → 401 Unauthorized
+       │
+       └── Todo OK → request.setAttribute("username", sub)
+                            │
+                            ▼
+                     ApiController.hello()
+                     → {"message":"Hello","user":"admin"}
+```
+
+### 4.5 Spring Security — Configuración
+
+```java
+http
+  .csrf().disable()               // API REST stateless, no necesita CSRF
+  .sessionManagement()
+      .sessionCreationPolicy(STATELESS)  // Sin sesiones server-side
+  .authorizeRequests()
+      .antMatchers("/api/auth/**", "/health").permitAll()  // Rutas públicas
+      .antMatchers("/api/**").permitAll()  // JwtFilter maneja la auth
 ```
 
 ---
 
-## 3. Component Description
+## 5. Flujo de Autenticación Completo
 
-### 3.1 Server 1 — Apache Web Server (Presentation Tier)
+```
+1. Usuario abre https://18.207.125.2
+   └── Apache entrega index.html + app.js + config.js + styles.css
+       (todo sobre HTTPS/TLS)
 
-**Responsibility:** Deliver the HTML/JavaScript single-page client application to the user's browser over an encrypted TLS connection.
+2. Usuario escribe usuario/contraseña y hace clic en Login
+   └── app.js ejecuta:
+       fetch("https://54.197.195.207:8443/api/auth/login", {
+         method: "POST",
+         body: JSON.stringify({username, password})
+       })
 
-**Technology:** Apache httpd on Amazon Linux 2023.
+3. Spring recibe el POST /api/auth/login
+   └── AuthController.login()
+       └── authManager.authenticate(username, password)
+           └── UserService.loadUserByUsername(username)
+               └── BCryptPasswordEncoder.matches(password, storedHash)
+                   ├── Incorrecto → 401 {"error":"Invalid credentials"}
+                   └── Correcto  → JwtService.generate(username, role)
+                                   → {"token":"eyJ...","username":"admin"}
 
-**Security:**
-- TLS certificate issued by **Let's Encrypt** (a trusted public CA).
-- All HTTP traffic on port 80 is redirected (301) to HTTPS port 443.
-- Modern cipher suites only: `ECDHE-RSA-AES128-GCM-SHA256`, `ECDHE-RSA-AES256-GCM-SHA384`.
-- `Strict-Transport-Security` header enforces HTTPS on subsequent visits.
-- `X-Content-Type-Options: nosniff` prevents MIME-type sniffing attacks.
-- `X-Frame-Options: DENY` prevents clickjacking.
+4. El browser guarda el token en sessionStorage
+   └── sessionStorage.setItem("eci_token", token)
 
-**Role in 12-factor:** Serves static assets. The only file that changes between environments is `js/config.js`, which contains the backend server URLs.
+5. Usuario hace clic en "Call /api/hello"
+   └── app.js ejecuta:
+       fetch("https://54.197.195.207:8443/api/hello", {
+         headers: {"Authorization": "Bearer eyJ..."}
+       })
+
+6. Spring recibe GET /api/hello
+   └── JwtFilter valida el token
+       └── Token válido → ApiController.hello()
+           → {"message":"Hello from the secure Spring server!","user":"admin"}
+
+7. El resultado se muestra en el dashboard del cliente
+```
 
 ---
 
-### 3.2 Server 2 — Login Service (Authentication)
+## 6. Principios 12-Factor App
 
-**Responsibility:** Authenticate users (login/register) and issue JWT tokens that authorize access to the backend service.
-
-**Technology:** Spring Framework 5.3 + Spring Security 5.7 + Embedded Jetty 9.4.
-
-**Endpoints:**
-- `POST /api/auth/login` — validates credentials, returns a JWT token.
-- `POST /api/auth/register` — creates a new user with a BCrypt-hashed password.
-- `GET /health` — health check (public).
-
-**Security mechanisms:**
-1. **HTTPS/TLS:** Runs with a PKCS12 KeyStore. The server's identity is proved to clients via its certificate.
-2. **Password hashing:** Spring Security's `BCryptPasswordEncoder` with default strength (10 rounds). Passwords are never stored or logged in plain text.
-3. **JWT token generation:** HMAC-SHA256 signed tokens with 1-hour expiry. The signing secret is injected via environment variable `TOKEN_SECRET`.
-4. **TrustStore:** A JKS TrustStore containing the Backend Service's certificate, enabling mutual TLS verification for server-to-server calls.
-5. **CORS filter:** Restricts browser cross-origin requests to the configured `ALLOWED_ORIGIN` (the Apache server's domain).
-
----
-
-### 3.3 Server 3 — Backend Service (Business Logic)
-
-**Responsibility:** Provide secured RESTful API endpoints that serve business data, accessible only to authenticated users.
-
-**Technology:** Spring Framework 5.3 + Embedded Jetty 9.4.
-
-**Endpoints:**
-- `GET /api/hello` — authenticated greeting.
-- `GET /api/data` — protected data records.
-- `GET /api/secure-info` — security configuration info.
-- `GET /health` — health check (public).
-
-**Security mechanisms:**
-1. **HTTPS/TLS:** Own PKCS12 KeyStore with its own certificate.
-2. **JWT validation filter:** `TokenAuthFilter` intercepts every `/api/*` request, extracts the `Authorization: Bearer <token>` header, validates the HMAC-SHA256 signature, checks expiry, and extracts the username. Rejects (401) any request with an invalid or missing token.
-3. **Mutual TLS (mTLS):** TrustStore contains the Login Service's certificate. When the Backend Service receives a call from the Login Service, it can verify the caller's identity via the certificate chain.
-4. **Stateless:** No server-side sessions. Every request is self-contained.
-
----
-
-## 4. Security Architecture Deep Dive
-
-### 4.1 TLS Certificate Chain
-
-```
-Production:
-  Apache (Server 1)         → Let's Encrypt certificate (public CA)
-  Login Service (Server 2)  → Self-signed PKCS12 (or Let's Encrypt in prod)
-  Backend Service (Server 3)→ Self-signed PKCS12 (or Let's Encrypt in prod)
-
-TrustStore relationships:
-  Login Service TrustStore  ← contains Backend Service certificate
-  Backend Service TrustStore← contains Login Service certificate
-```
-
-This means:
-- The browser trusts Apache (via Let's Encrypt, already in browser's trust store).
-- The browser can also access the Spring services (after accepting the self-signed cert, or with Let's Encrypt in production).
-- Server 2 and Server 3 mutually verify each other via their TrustStores.
-
-### 4.2 Authentication Flow
-
-```
-1.  Browser  ──POST /api/auth/login──▶ Login Service
-             (username + password over HTTPS)
-
-2.  Login Service:
-    a. Loads user from store
-    b. BCrypt.verify(submittedPassword, storedHash)
-    c. If match → generate JWT(username, role, expiry=now+1h)
-    d. Return { token: "..." }
-
-3.  Browser stores token in sessionStorage
-
-4.  Browser  ──GET /api/data──────────▶ Backend Service
-             (Authorization: Bearer <token>)
-
-5.  Backend Service:
-    a. TokenAuthFilter.doFilter()
-    b. Extract token from header
-    c. Split: header.payload.signature
-    d. HMAC-SHA256(header.payload, TOKEN_SECRET) == signature?
-    e. Is exp timestamp in the future?
-    f. If all pass → set authenticatedUser attribute → continue
-    g. If any fail → 401 Unauthorized
-
-6.  BackendController handles request, returns data
-```
-
-### 4.3 Password Security
-
-Passwords are never stored in plain text. The BCrypt algorithm is used:
-
-```
-Registration:
-  plainPassword → BCryptPasswordEncoder.encode() → $2a$10$xxx... (60 chars)
-  Only the hash is stored.
-
-Login verification:
-  BCryptPasswordEncoder.matches(plainPassword, storedHash)
-  This is a one-way check. The hash cannot be reversed.
-```
-
-BCrypt includes:
-- A **random salt** (embedded in the hash string).
-- A **cost factor** (10 by default), making brute-force attacks expensive.
-- The same password produces different hashes each time it is encoded.
-
-### 4.4 The Metaphor of the System (Metáfora del Sistema)
-
-Think of this architecture as a **secure government building complex**:
-
-- **Apache (Server 1)** is the **public entrance** — everyone can walk in. The door is made of glass (transparent HTTPS), but a guard (TLS) checks your identity before you enter. Let's Encrypt is the government-recognized locksmith who certified the lock.
-
-- **Login Service (Server 2)** is the **security checkpoint** — like a passport control booth. You present your credentials (username + password). The officer checks your passport against the government records (BCrypt hash verification). If you pass, you receive a **temporary badge** (JWT token) that is stamped with an unforgeable official seal (HMAC-SHA256 signature).
-
-- **Backend Service (Server 3)** is the **restricted area** — a room where classified documents are stored. The guard at the door only looks at your badge (JWT token). She doesn't ask for your password again. She checks: Is the seal authentic? Is the badge still valid (not expired)? Is this badge from our issuing office (matching TOKEN_SECRET)? If yes → you may enter.
-
-- **mTLS between Server 2 and Server 3** is like the two guards knowing each other personally: when a guard from Server 2 calls Server 3 on the internal phone, Server 3 checks the voice/ID to confirm it is really Server 2 calling, not an impostor.
-
----
-
-## 5. 12-Factor App Implementation
-
-This project strictly follows the [12-factor methodology](https://12factor.net/):
-
-| Factor | How it's applied in this project |
+| Factor | Implementación |
 |---|---|
-| **I. Codebase** | Single Git repo with all services. One repo, multiple deploys (dev, staging, prod). |
-| **II. Dependencies** | All Java dependencies declared in `pom.xml`. No system-level implicit dependencies. |
-| **III. Config** | `PORT`, `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `TOKEN_SECRET`, `ALLOWED_ORIGIN` — all from environment variables. No secrets in code. |
-| **IV. Backing services** | Keystores and truststores are treated as attached resources referenced by path from env var. |
-| **VI. Processes** | Both Spring services are stateless. No sticky sessions. Any instance can serve any request. |
-| **VII. Port binding** | Services export themselves via a port read from `PORT` env var. No app server required. |
-| **IX. Disposability** | Embedded Jetty starts in seconds. Systemd enables fast restart on crash (`Restart=always`). |
-| **X. Dev/prod parity** | Same JARs are run locally and in AWS. Only env vars change. |
-| **XI. Logs** | Both services log to stdout. Systemd captures logs; `journalctl` provides access. |
+| **I. Codebase** | Un repositorio Git, múltiples deploys (local, AWS) |
+| **II. Dependencies** | Todas declaradas en `pom.xml`, sin dependencias implícitas |
+| **III. Config** | `PORT`, `KEYSTORE_PATH`, `KEYSTORE_PASS`, `TOKEN_SECRET`, `ALLOWED_ORIGIN` — todas en variables de entorno, nunca en el código |
+| **IV. Backing services** | El keystore se trata como recurso adjunto, referenciado por path desde env var |
+| **VI. Processes** | Stateless — JWT, sin sesiones server-side |
+| **VII. Port binding** | Puerto leído de `PORT` env var. El servidor se auto-contiene con Jetty embebido |
+| **IX. Disposability** | Jetty arranca en ~1.5 segundos. systemd reinicia en caso de fallo |
+| **XI. Logs** | Escritos a stdout, capturados por systemd (`journalctl -u secure-app`) |
+
+**Ejemplo del principio III en el código:**
+
+```java
+// Main.java — todo desde variables de entorno
+int    port         = getInt("PORT", 8443);
+String keystorePath = getStr("KEYSTORE_PATH", "src/main/resources/keystore/serverkeystore.p12");
+String keystorePass = getStr("KEYSTORE_PASS",  "changeit");
+String secret       = getStr("TOKEN_SECRET",   "dev-secret-change-in-prod");
+```
+
+```bash
+# En producción (systemd):
+Environment=PORT=8443
+Environment=KEYSTORE_PATH=/home/ec2-user/app/keystore/serverkeystore.p12
+Environment=TOKEN_SECRET=a8f3b2c1d4e5...  # secreto generado con openssl rand
+```
+---
+
+## 7. Infraestructura AWS
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       AWS Region (us-east-1)                     │
+│                                                                  │
+│   ┌─────────────────────┐    ┌─────────────────────────────┐    │
+│   │  EC2: eci-apache     │    │  EC2: eci-spring-server     │    │
+│   │  t2.micro            │    │  t2.micro                   │    │
+│   │  18.207.125.2        │    │  54.197.195.207             │    │
+│   │                     │    │                             │    │
+│   │  SG: eci-apache-sg  │    │  SG: eci-spring-sg          │    │
+│   │  - 22 (SSH/MyIP)    │    │  - 22 (SSH/MyIP)            │    │
+│   │  - 80 (HTTP)        │    │  - 8443 (HTTPS Spring)      │    │
+│   │  - 443 (HTTPS)      │    │                             │    │
+│   └─────────────────────┘    └─────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 6. AWS Infrastructure
+## 8. Garantías de Seguridad
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                            AWS Region                                │
-│                                                                      │
-│   ┌─────────────────────────────────────────────────────────────┐    │
-│   │                        VPC                                   │    │
-│   │                                                              │    │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │    │
-│   │  │  EC2: Apache │  │  EC2: Login  │  │  EC2: Backend    │  │    │
-│   │  │  t2.micro    │  │  t2.micro    │  │  t2.micro        │  │    │
-│   │  │  SG: 80,443  │  │  SG: 5000   │  │  SG: 6000        │  │    │
-│   │  └──────────────┘  └──────────────┘  └──────────────────┘  │    │
-│   │                                                              │    │
-│   │  Security Groups restrict access:                            │    │
-│   │    Instance 1: 80,443 from 0.0.0.0/0 (public)              │    │
-│   │    Instance 2: 5000 from 0.0.0.0/0 (or restrict to SG1)    │    │
-│   │    Instance 3: 6000 from 0.0.0.0/0 (or restrict to SG1/2)  │    │
-│   └─────────────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 7. Security Guarantees
-
-This architecture satisfies all workshop requirements:
-
-| Requirement | Mechanism | Where |
+| Requisito | Mecanismo | Verificación |
 |---|---|---|
-| **User Integrity** | HTTPS ensures data is not tampered with in transit | All servers |
-| **User Authentication** | BCrypt login + JWT token | Login Service |
-| **User Authorization** | TokenAuthFilter on every protected route | Backend Service |
-| **Server Integrity** | TLS certificates prove server identity | All servers |
-| **Server Authentication** | Mutual TLS (TrustStore) | Server 2 ↔ Server 3 |
-| **Server Authorization** | Only servers with trusted certs can call each other | mTLS |
-| **2 Backend Servers** | Login Service (port 5000) + Backend Service (port 6000) | AWS |
+| Integridad del transporte | TLS cifra y firma cada paquete | `openssl s_client -connect IP:8443` |
+| Autenticación de usuario | BCrypt + JWT | Login con credenciales incorrectas → 401 |
+| Autorización de usuario | JwtFilter en `/api/*` | Request sin token → 401 |
+| Confidencialidad | HTTPS en ambos servidores | Todo tráfico cifrado |
+| No repudio de tokens | HMAC-SHA256 con secreto del servidor | Token modificado → 401 |
+| Contraseñas seguras | BCrypt strength-10 + salt aleatorio | Hash diferente cada encode |
 
 ---
 
-## 8. GitHub Repository Structure
-
-```
-secure-app/
-├── .gitignore                    # Excludes *.p12, *.jks, target/
-├── docs/
-│   ├── README.md                 # Deployment instructions
-│   └── architecture.md           # This document
-├── scripts/
-│   ├── generate-certs.sh
-│   ├── setup-apache.sh
-│   └── deploy-aws.sh
-├── login-service/
-│   ├── pom.xml
-│   └── src/
-└── backend-service/
-    ├── pom.xml
-    └── src/
-```
-
-> **Important:** Keystore files (`*.p12`, `*.jks`) and the `target/` build directory are listed in `.gitignore` and must never be committed to version control. Secrets are injected via environment variables at runtime.
-
----
-
-## 9. References
+## 9. Referencias
 
 - Spring Framework 5.3 Documentation: https://docs.spring.io/spring-framework/docs/5.3.x/reference/html/
 - Spring Security 5.7 Reference: https://docs.spring.io/spring-security/reference/5.7/
-- Oracle keytool documentation: https://docs.oracle.com/en/java/javase/11/tools/keytool.html
+- Oracle keytool: https://docs.oracle.com/en/java/javase/11/tools/keytool.html
 - PKCS12 vs JKS: https://docs.oracle.com/cd/E19509-01/820-3503/ggffo/index.html
-- Let's Encrypt: https://letsencrypt.org/getting-started/
 - 12-factor App: https://12factor.net/
 - AWS AL2023 LAMP Setup: https://docs.aws.amazon.com/linux/al2023/ug/ec2-lamp-amazon-linux-2023.html
-- Workshop Reference: *Taller de Arquitectura Segura* by Luis Daniel Benavides Navarro
+- Taller de Arquitectura Segura — Luis Daniel Benavides Navarro (ECI, 2020)
+- JWT RFC 7519: https://datatracker.ietf.org/doc/html/rfc7519
+- BCrypt: https://en.wikipedia.org/wiki/Bcrypt
